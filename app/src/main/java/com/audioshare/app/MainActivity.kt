@@ -4,6 +4,7 @@ import android.Manifest
 import android.app.Activity
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
+import android.bluetooth.BluetoothManager
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.res.ColorStateList
@@ -138,9 +139,9 @@ class MainActivity : Activity() {
 
         val buttons = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         buttons.addView(Button(this).apply {
-            text = "Bluetooth"; textSize = 13f; isAllCaps = false; setTextColor(white); background = rounded(panel2, 18)
-            setOnClickListener { startActivity(Intent(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS)) }
-        }, LinearLayout.LayoutParams(0, dp(54), 0.38f))
+            text = "⌕  Search / Pair"; textSize = 13f; isAllCaps = false; setTextColor(white); background = rounded(panel2, 18)
+            setOnClickListener { openBluetoothPairing() }
+        }, LinearLayout.LayoutParams(0, dp(54), 0.42f))
         val shareParams = LinearLayout.LayoutParams(0, dp(54), 0.62f); shareParams.setMargins(dp(10), 0, 0, 0)
         buttons.addView(Button(this).apply {
             text = "▶  Share Movie Audio"; textSize = 14f; typeface = Typeface.DEFAULT_BOLD; isAllCaps = false
@@ -192,6 +193,25 @@ class MainActivity : Activity() {
             if (Build.VERSION.SDK_INT >= 26) startForegroundService(service) else startService(service)
             status.text = "Trying to share audio to " + selected.size + " device(s)…"
             Toast.makeText(this, "AudioShare is trying the multi-output route.", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun openBluetoothPairing() {
+        try {
+            startActivity(Intent(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS))
+            Toast.makeText(this, "Pair the new earbuds/headphones/speaker in Bluetooth, then return to AudioShare.", Toast.LENGTH_LONG).show()
+        } catch (_: Exception) {
+            startActivity(Intent(android.provider.Settings.ACTION_SETTINGS))
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (::deviceList.isInitialized &&
+            (Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
+                checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED)
+        ) {
+            loadPairedDevices()
         }
     }
 
