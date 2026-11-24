@@ -69,8 +69,27 @@ class AudioShareService : Service() {
 
         val am = getSystemService(Context.AUDIO_SERVICE) as AudioManager
         val outputs = am.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+        val bluetoothOutputs = outputs.filter {
+            it.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
+            (Build.VERSION.SDK_INT >= 31 && (
+                it.type == AudioDeviceInfo.TYPE_BLE_HEADSET ||
+                it.type == AudioDeviceInfo.TYPE_BLE_SPEAKER ||
+                it.type == AudioDeviceInfo.TYPE_BLE_BROADCAST
+            ))
+        }
+
         addresses.forEachIndexed { i, address ->
-            val device = outputs.firstOrNull { it.address == address }
+            val device = bluetoothOutputs.firstOrNull {
+                it.address.equals(address, ignoreCase = true)
+            } ?: run {
+                val bt = try {
+                    android.bluetooth.BluetoothAdapter.getDefaultAdapter()?.getRemoteDevice(address)
+                } catch (_: Exception) { null }
+                val wantedName = try { bt?.name?.trim() } catch (_: Exception) { null }
+                if (wantedName.isNullOrEmpty()) null else bluetoothOutputs.firstOrNull {
+                    it.productName?.toString()?.trim().equals(wantedName, ignoreCase = true)
+                }
+            }
             if (device != null) {
                 val track = try {
                     AudioTrack.Builder()
@@ -83,6 +102,7 @@ class AudioShareService : Service() {
                 } catch (_: Exception) { null }
                 if (track != null && track.setPreferredDevice(device)) {
                     track.play()
+                    try { Thread.sleep(80) } catch (_: InterruptedException) {}
                     tracks.add(track to ((volumes.getOrNull(i) ?: 100) / 100f))
                 } else track?.release()
             }
