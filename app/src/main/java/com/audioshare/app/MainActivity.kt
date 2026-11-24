@@ -211,7 +211,11 @@ class MainActivity : Activity() {
             (Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
                 checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED)
         ) {
+            // Bluetooth Settings can finish pairing a moment after this activity resumes.
+            // Refresh once now and again shortly after returning from Settings.
             loadPairedDevices()
+            deviceList.postDelayed({ loadPairedDevices() }, 1200)
+            deviceList.postDelayed({ loadPairedDevices() }, 3000)
         }
     }
 
@@ -243,8 +247,11 @@ class MainActivity : Activity() {
                 setPadding(dp(20), dp(30), dp(20), dp(30))
             }); return
         }
-        devices.take(5).forEach { addDeviceRow(it) }
-        status.text = "Showing " + minOf(devices.size, 5) + " paired device(s)"
+        // Show every paired audio device; the 5-device limit applies only to selection.
+        devices.sortedBy {
+            try { it.name ?: it.address } catch (_: SecurityException) { it.address }
+        }.forEach { addDeviceRow(it) }
+        status.text = "Showing " + devices.size + " paired device(s) • select up to 5"
     }
 
     private fun addDeviceRow(device: BluetoothDevice) {
