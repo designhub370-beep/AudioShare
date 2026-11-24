@@ -11,6 +11,7 @@ import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.Bundle
 import android.view.Gravity
@@ -31,6 +32,9 @@ class MainActivity : Activity() {
     private lateinit var status: TextView
     private lateinit var selectedCount: TextView
     private val selected = linkedSetOf<String>()
+    private val volumes = mutableMapOf<String, Int>()
+    private val projectionRequest = 200
+    private val audioPermissionRequest = 201
 
     private val navy = Color.rgb(10, 17, 32)
     private val panel = Color.rgb(20, 30, 52)
@@ -99,7 +103,7 @@ class MainActivity : Activity() {
                 text = "Your sound,\nshared."; textSize = 23f; typeface = Typeface.DEFAULT_BOLD; setTextColor(white)
             })
             addView(TextView(this@MainActivity).apply {
-                text = "Connect up to 5 paired Bluetooth devices and tune each volume separately."
+                text = "Experimental: try sharing movie/music audio to up to 5 selected Bluetooth outputs."
                 textSize = 13f; setTextColor(muted); setPadding(0, dp(6), 0, 0)
             })
         }, LinearLayout.LayoutParams(0, -2, 1f))
@@ -128,7 +132,7 @@ class MainActivity : Activity() {
         deviceList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         content.addView(deviceList)
         content.addView(TextView(this).apply {
-            text = "Tip • Pair your earbuds/speakers in Bluetooth Settings first."
+            text = "Tip • Pair your earbuds/speakers in Bluetooth Settings first. Android may still limit simultaneous outputs."
             textSize = 12f; setTextColor(muted); setPadding(dp(4), dp(12), dp(4), dp(10))
         })
 
@@ -139,15 +143,9 @@ class MainActivity : Activity() {
         }, LinearLayout.LayoutParams(0, dp(54), 0.38f))
         val shareParams = LinearLayout.LayoutParams(0, dp(54), 0.62f); shareParams.setMargins(dp(10), 0, 0, 0)
         buttons.addView(Button(this).apply {
-            text = "▶  Start Sharing"; textSize = 14f; typeface = Typeface.DEFAULT_BOLD; isAllCaps = false
+            text = "▶  Share Movie Audio"; textSize = 14f; typeface = Typeface.DEFAULT_BOLD; isAllCaps = false
             setTextColor(Color.WHITE); background = rounded(Color.rgb(55, 113, 232), 18)
-            setOnClickListener {
-                if (selected.isEmpty()) Toast.makeText(this@MainActivity, "Select at least one device", Toast.LENGTH_SHORT).show()
-                else {
-                    status.text = "Sharing prototype active • " + selected.size + " device(s)"
-                    Toast.makeText(this@MainActivity, "UI ready. Actual multi-output audio depends on Android/Bluetooth hardware.", Toast.LENGTH_LONG).show()
-                }
-            }
+            setOnClickListener { startSharingExperiment() }
         }, shareParams)
         val bp = LinearLayout.LayoutParams(-1, dp(54)); bp.setMargins(0, dp(8), 0, 0); content.addView(buttons, bp)
 
@@ -164,6 +162,39 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun startSharingExperiment() {
+        if (selected.isEmpty()) {
+            Toast.makeText(this, "Select at least one device", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (Build.VERSION.SDK_INT < 29) {
+            Toast.makeText(this, "Movie-audio capture needs Android 10 or newer.", Toast.LENGTH_LONG).show()
+            return
+        }
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), audioPermissionRequest)
+            return
+        }
+        val pm = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+        startActivityForResult(pm.createScreenCaptureIntent(), projectionRequest)
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == projectionRequest && resultCode == RESULT_OK && data != null) {
+            val service = Intent(this, AudioShareService::class.java).apply {
+                action = AudioShareService.ACTION_START
+                putExtra(AudioShareService.EXTRA_RESULT_CODE, resultCode)
+                putExtra(AudioShareService.EXTRA_PROJECTION_DATA, data)
+                putStringArrayListExtra(AudioShareService.EXTRA_DEVICE_ADDRESSES, ArrayList(selected))
+                putIntegerArrayListExtra(AudioShareService.EXTRA_VOLUMES, ArrayList(selected.map { volumes[it] ?: 100 }))
+            }
+            if (Build.VERSION.SDK_INT >= 26) startForegroundService(service) else startService(service)
+            status.text = "Trying to share audio to " + selected.size + " device(s)…"
+            Toast.makeText(this, "AudioShare is trying the multi-output route.", Toast.LENGTH_LONG).show()
+        }
+    }
+
     private fun requestBluetoothPermissions() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) requestPermissions(
             arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT), 100
@@ -172,7 +203,9 @@ class MainActivity : Activity() {
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, results: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, results)
-        if (requestCode == 100) {
+        if (requestCode == audioPermissionRequest && results.isNotEmpty() && results[0] == PackageManager.PERMISSION_GRANTED) {
+            startSharingExperiment()
+        } else if (requestCode == 100) {
             if (results.isNotEmpty() && results.all { it == PackageManager.PERMISSION_GRANTED }) loadPairedDevices()
             else status.text = "Bluetooth permission is required to show paired devices."
         }
@@ -218,16 +251,17 @@ class MainActivity : Activity() {
         row.addView(top)
         row.addView(TextView(this).apply { text = "Volume"; textSize = 12f; setTextColor(muted); setPadding(dp(4), dp(10), dp(4), 0) })
         val volume = SeekBar(this).apply {
-            max = 100; progress = 80; progressTintList = ColorStateList.valueOf(cyan); thumbTintList = ColorStateList.valueOf(Color.WHITE)
+            max = 100; progress = 100; progressTintList = ColorStateList.valueOf(cyan); thumbTintList = ColorStateList.valueOf(Color.WHITE)
         }
         row.addView(volume, ViewGroup.LayoutParams(-1, ViewGroup.LayoutParams.WRAP_CONTENT))
-        val label = TextView(this).apply { text = "80%"; textSize = 12f; gravity = Gravity.END; setTextColor(cyan) }
+        val label = TextView(this).apply { text = "100%"; textSize = 12f; gravity = Gravity.END; setTextColor(cyan) }
         volume.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) { label.text = progress.toString() + "%" }
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) { label.text = progress.toString() + "%"; volumes[device.address] = progress }
             override fun onStartTrackingTouch(seekBar: SeekBar?) {}
             override fun onStopTrackingTouch(seekBar: SeekBar?) {}
         })
         row.addView(label)
+        volumes.putIfAbsent(device.address, 100)
         val p = LinearLayout.LayoutParams(-1, ViewGroup.LayoutParams.WRAP_CONTENT); p.setMargins(0, 0, 0, dp(10)); deviceList.addView(row, p)
     }
 }
