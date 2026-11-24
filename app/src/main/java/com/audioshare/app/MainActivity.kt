@@ -6,25 +6,49 @@ import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.res.ColorStateList
+import android.graphics.BitmapFactory
 import android.graphics.Color
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Bundle
 import android.view.Gravity
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.CheckBox
+import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
+import java.net.URL
+import kotlin.concurrent.thread
 
 class MainActivity : Activity() {
     private lateinit var deviceList: LinearLayout
     private lateinit var status: TextView
+    private lateinit var selectedCount: TextView
     private val selected = linkedSetOf<String>()
 
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
+    private val navy = Color.rgb(10, 17, 32)
+    private val panel = Color.rgb(20, 30, 52)
+    private val panel2 = Color.rgb(26, 38, 65)
+    private val cyan = Color.rgb(74, 216, 255)
+    private val white = Color.rgb(245, 248, 255)
+    private val muted = Color.rgb(164, 178, 204)
+
+    private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
+    private fun rounded(color: Int, radius: Int) = GradientDrawable().apply {
+        setColor(color); cornerRadius = dp(radius).toFloat()
+    }
+    private fun outlined(fill: Int, line: Int) = GradientDrawable().apply {
+        setColor(fill); setStroke(dp(1), line); cornerRadius = dp(20).toFloat()
+    }
+
+    override fun onCreate(state: Bundle?) {
+        super.onCreate(state)
         buildUi()
         requestBluetoothPermissions()
     }
@@ -32,148 +56,178 @@ class MainActivity : Activity() {
     private fun buildUi() {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(32, 28, 32, 28)
-            setBackgroundColor(Color.rgb(248, 249, 252))
+            setBackgroundColor(navy)
+        }
+        val scroll = ScrollView(this).apply { setBackgroundColor(navy) }
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(18), dp(20), dp(22))
         }
 
-        root.addView(TextView(this).apply {
-            text = "AudioShare"
-            textSize = 30f
-            setTextColor(Color.rgb(25, 28, 35))
-        })
-        root.addView(TextView(this).apply {
-            text = "Share audio to multiple Bluetooth devices"
-            textSize = 16f
-            setTextColor(Color.DKGRAY)
-        })
-
-        status = TextView(this).apply {
-            text = "Select up to 5 paired devices"
-            textSize = 15f
-            setPadding(0, 18, 0, 12)
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
         }
-        root.addView(status)
-
-        deviceList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        root.addView(deviceList, LinearLayout.LayoutParams(-1, 0, 1f))
-
-        root.addView(Button(this).apply {
-            text = "Bluetooth Settings"
-            setOnClickListener {
+        val titles = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        titles.addView(TextView(this).apply {
+            text = "AudioShare"; textSize = 29f; typeface = Typeface.DEFAULT_BOLD; setTextColor(white)
+        })
+        titles.addView(TextView(this).apply {
+            text = "Listen together • control every device"; textSize = 13f; setTextColor(muted)
+        })
+        header.addView(titles, LinearLayout.LayoutParams(0, -2, 1f))
+        header.addView(TextView(this).apply {
+            text = "⚙"; textSize = 25f; gravity = Gravity.CENTER; setTextColor(white)
+            background = rounded(panel2, 16); setOnClickListener {
                 startActivity(Intent(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS))
             }
+        }, LinearLayout.LayoutParams(dp(48), dp(48)))
+        content.addView(header)
+
+        val hero = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+            background = outlined(panel, Color.rgb(48, 67, 102)); setPadding(dp(14), dp(12), dp(14), dp(12))
+        }
+        val logo = ImageView(this).apply {
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            background = rounded(Color.rgb(250, 246, 244), 18); clipToOutline = true
+        }
+        hero.addView(logo, LinearLayout.LayoutParams(dp(92), dp(92)))
+        hero.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL; setPadding(dp(14), 0, 0, 0)
+            addView(TextView(this@MainActivity).apply {
+                text = "Your sound,\nshared."; textSize = 23f; typeface = Typeface.DEFAULT_BOLD; setTextColor(white)
+            })
+            addView(TextView(this@MainActivity).apply {
+                text = "Connect up to 5 paired Bluetooth devices and tune each volume separately."
+                textSize = 13f; setTextColor(muted); setPadding(0, dp(6), 0, 0)
+            })
+        }, LinearLayout.LayoutParams(0, -2, 1f))
+        val hp = LinearLayout.LayoutParams(-1, -2); hp.setMargins(0, dp(20), 0, dp(18)); content.addView(hero, hp)
+        loadLogo(logo)
+
+        val statusCard = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+            background = rounded(Color.rgb(17, 28, 47), 18); setPadding(dp(14), dp(12), dp(14), dp(12))
+        }
+        statusCard.addView(TextView(this).apply { text = "●"; textSize = 14f; setTextColor(cyan) })
+        status = TextView(this).apply {
+            text = "Select up to 5 paired devices"; textSize = 14f; setTextColor(white); setPadding(dp(8), 0, 0, 0)
+        }
+        statusCard.addView(status, LinearLayout.LayoutParams(0, -2, 1f))
+        selectedCount = TextView(this).apply {
+            text = "0/5"; textSize = 13f; typeface = Typeface.DEFAULT_BOLD; setTextColor(cyan)
+            background = rounded(Color.rgb(25, 57, 76), 14); setPadding(dp(10), dp(5), dp(10), dp(5))
+        }
+        statusCard.addView(selectedCount); content.addView(statusCard)
+
+        content.addView(TextView(this).apply {
+            text = "DEVICES"; textSize = 12f; typeface = Typeface.DEFAULT_BOLD; setTextColor(muted); letterSpacing = 0.16f
+            setPadding(dp(4), dp(22), 0, dp(9))
+        })
+        deviceList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        content.addView(deviceList)
+        content.addView(TextView(this).apply {
+            text = "Tip • Pair your earbuds/speakers in Bluetooth Settings first."
+            textSize = 12f; setTextColor(muted); setPadding(dp(4), dp(12), dp(4), dp(10))
         })
 
-        root.addView(Button(this).apply {
-            text = "Start Sharing"
+        val buttons = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        buttons.addView(Button(this).apply {
+            text = "Bluetooth"; textSize = 13f; isAllCaps = false; setTextColor(white); background = rounded(panel2, 18)
+            setOnClickListener { startActivity(Intent(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS)) }
+        }, LinearLayout.LayoutParams(0, dp(54), 0.38f))
+        val shareParams = LinearLayout.LayoutParams(0, dp(54), 0.62f); shareParams.setMargins(dp(10), 0, 0, 0)
+        buttons.addView(Button(this).apply {
+            text = "▶  Start Sharing"; textSize = 14f; typeface = Typeface.DEFAULT_BOLD; isAllCaps = false
+            setTextColor(Color.WHITE); background = rounded(Color.rgb(55, 113, 232), 18)
             setOnClickListener {
-                val count = selected.size
-                if (count == 0) {
-                    Toast.makeText(this@MainActivity, "Select at least one device", Toast.LENGTH_SHORT).show()
-                } else {
-                    status.text = "Sharing prototype active • " + count + " device(s) selected"
-                    Toast.makeText(this@MainActivity, "UI ready. Actual multi-output audio requires compatible Android/Bluetooth hardware.", Toast.LENGTH_LONG).show()
+                if (selected.isEmpty()) Toast.makeText(this@MainActivity, "Select at least one device", Toast.LENGTH_SHORT).show()
+                else {
+                    status.text = "Sharing prototype active • " + selected.size + " device(s)"
+                    Toast.makeText(this@MainActivity, "UI ready. Actual multi-output audio depends on Android/Bluetooth hardware.", Toast.LENGTH_LONG).show()
                 }
             }
-        })
+        }, shareParams)
+        val bp = LinearLayout.LayoutParams(-1, dp(54)); bp.setMargins(0, dp(8), 0, 0); content.addView(buttons, bp)
 
-        setContentView(root)
+        scroll.addView(content); root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f)); setContentView(root)
+    }
+
+    private fun loadLogo(imageView: ImageView) {
+        val url = "https://plain-apac-prod-public.komododecks.com/202611/24/jyM9s0qttMZWWIFPYXUj/image.png"
+        thread {
+            try {
+                val bitmap = URL(url).openStream().use { BitmapFactory.decodeStream(it) }
+                runOnUiThread { if (bitmap != null) imageView.setImageBitmap(bitmap) }
+            } catch (_: Exception) {}
+        }
     }
 
     private fun requestBluetoothPermissions() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            requestPermissions(arrayOf(
-                Manifest.permission.BLUETOOTH_SCAN,
-                Manifest.permission.BLUETOOTH_CONNECT
-            ), 100)
-        } else {
-            loadPairedDevices()
-        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) requestPermissions(
+            arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT), 100
+        ) else loadPairedDevices()
     }
 
-    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, results: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, results)
         if (requestCode == 100) {
-            if (grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
-                loadPairedDevices()
-            } else {
-                status.text = "Bluetooth permission is required to show paired devices."
-            }
+            if (results.isNotEmpty() && results.all { it == PackageManager.PERMISSION_GRANTED }) loadPairedDevices()
+            else status.text = "Bluetooth permission is required to show paired devices."
         }
     }
 
     private fun loadPairedDevices() {
         deviceList.removeAllViews()
         val adapter = BluetoothAdapter.getDefaultAdapter()
-        if (adapter == null) {
-            status.text = "Bluetooth is not available on this phone."
-            return
-        }
-
-        val devices: Set<BluetoothDevice> = try {
-            adapter.bondedDevices
-        } catch (_: SecurityException) {
-            emptySet()
-        }
-
+        if (adapter == null) { status.text = "Bluetooth is not available on this phone."; return }
+        val devices: Set<BluetoothDevice> = try { adapter.bondedDevices } catch (_: SecurityException) { emptySet() }
         if (devices.isEmpty()) {
             deviceList.addView(TextView(this).apply {
-                text = "No paired Bluetooth devices found. Pair earbuds/speakers in Bluetooth Settings first."
-                textSize = 16f
-                setPadding(0, 20, 0, 20)
-            })
-            return
+                text = "No paired Bluetooth devices found.\nPair your earbuds/speakers first."
+                textSize = 15f; setTextColor(muted); gravity = Gravity.CENTER; background = rounded(panel, 20)
+                setPadding(dp(20), dp(30), dp(20), dp(30))
+            }); return
         }
-
-        devices.take(5).forEach { device -> addDeviceRow(device) }
-        status.text = "Showing " + minOf(devices.size, 5) + " paired device(s). Select up to 5."
+        devices.take(5).forEach { addDeviceRow(it) }
+        status.text = "Showing " + minOf(devices.size, 5) + " paired device(s)"
     }
 
     private fun addDeviceRow(device: BluetoothDevice) {
         val row = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(12, 12, 12, 12)
-            setBackgroundColor(Color.WHITE)
+            orientation = LinearLayout.VERTICAL; background = rounded(panel, 20); setPadding(dp(16), dp(14), dp(16), dp(14))
         }
-
-        val check = CheckBox(this).apply {
+        val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        top.addView(TextView(this).apply {
+            text = "♫"; textSize = 22f; gravity = Gravity.CENTER; setTextColor(cyan); background = rounded(Color.rgb(24, 52, 70), 15)
+        }, LinearLayout.LayoutParams(dp(46), dp(46)))
+        top.addView(CheckBox(this).apply {
             text = try { device.name ?: "Bluetooth device" } catch (_: SecurityException) { "Bluetooth device" }
-            textSize = 17f
+            textSize = 16f; typeface = Typeface.DEFAULT_BOLD; setTextColor(white); buttonTintList = ColorStateList.valueOf(cyan)
+            setPadding(dp(8), 0, 0, 0)
             setOnCheckedChangeListener { _, checked ->
-                if (checked && selected.size >= 5) {
-                    isChecked = false
-                    Toast.makeText(this@MainActivity, "Maximum 5 devices", Toast.LENGTH_SHORT).show()
-                } else {
-                    val key = device.address
-                    if (checked) selected.add(key) else selected.remove(key)
-                    status.text = selected.size.toString() + "/5 devices selected"
+                if (checked && selected.size >= 5) { isChecked = false; Toast.makeText(this@MainActivity, "Maximum 5 devices", Toast.LENGTH_SHORT).show() }
+                else {
+                    if (checked) selected.add(device.address) else selected.remove(device.address)
+                    selectedCount.text = selected.size.toString() + "/5"
+                    status.text = if (selected.isEmpty()) "Select up to 5 paired devices" else selected.size.toString() + " device(s) selected"
                 }
             }
-        }
-        row.addView(check)
-
+        }, LinearLayout.LayoutParams(0, -2, 1f))
+        row.addView(top)
+        row.addView(TextView(this).apply { text = "Volume"; textSize = 12f; setTextColor(muted); setPadding(dp(4), dp(10), dp(4), 0) })
         val volume = SeekBar(this).apply {
-            max = 100
-            progress = 80
+            max = 100; progress = 80; progressTintList = ColorStateList.valueOf(cyan); thumbTintList = ColorStateList.valueOf(Color.WHITE)
         }
         row.addView(volume, ViewGroup.LayoutParams(-1, ViewGroup.LayoutParams.WRAP_CONTENT))
-
-        val label = TextView(this).apply {
-            text = "Individual volume: 80%"
-            gravity = Gravity.END
-            setTextColor(Color.GRAY)
-        }
+        val label = TextView(this).apply { text = "80%"; textSize = 12f; gravity = Gravity.END; setTextColor(cyan) }
         volume.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                label.text = "Individual volume: " + progress + "%"
-            }
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) { label.text = progress.toString() + "%" }
             override fun onStartTrackingTouch(seekBar: SeekBar?) {}
             override fun onStopTrackingTouch(seekBar: SeekBar?) {}
         })
         row.addView(label)
-
-        val params = LinearLayout.LayoutParams(-1, ViewGroup.LayoutParams.WRAP_CONTENT)
-        params.setMargins(0, 0, 0, 14)
-        deviceList.addView(row, params)
+        val p = LinearLayout.LayoutParams(-1, ViewGroup.LayoutParams.WRAP_CONTENT); p.setMargins(0, 0, 0, dp(10)); deviceList.addView(row, p)
     }
 }
