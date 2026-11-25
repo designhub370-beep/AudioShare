@@ -78,7 +78,7 @@ class MainActivity : Activity() {
             text = "AudioShare"; textSize = 29f; typeface = Typeface.DEFAULT_BOLD; setTextColor(white)
         })
         titles.addView(TextView(this).apply {
-            text = "Listen together • control every device"; textSize = 13f; setTextColor(muted)
+            text = "Auracast • one phone, many listeners"; textSize = 13f; setTextColor(muted)
         })
         header.addView(titles, LinearLayout.LayoutParams(0, -2, 1f))
         header.addView(TextView(this).apply {
@@ -101,10 +101,10 @@ class MainActivity : Activity() {
         hero.addView(LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL; setPadding(dp(14), 0, 0, 0)
             addView(TextView(this@MainActivity).apply {
-                text = "Your sound,\nshared."; textSize = 23f; typeface = Typeface.DEFAULT_BOLD; setTextColor(white)
+                text = "One broadcast,\nmany listeners."; textSize = 23f; typeface = Typeface.DEFAULT_BOLD; setTextColor(white)
             })
             addView(TextView(this@MainActivity).apply {
-                text = "Experimental: try sharing movie/music audio to up to 5 selected Bluetooth outputs."
+                text = "Auracast mode: one audio stream to compatible LE Audio receivers."
                 textSize = 13f; setTextColor(muted); setPadding(0, dp(6), 0, 0)
             })
         }, LinearLayout.LayoutParams(0, -2, 1f))
@@ -117,23 +117,23 @@ class MainActivity : Activity() {
         }
         statusCard.addView(TextView(this).apply { text = "●"; textSize = 14f; setTextColor(cyan) })
         status = TextView(this).apply {
-            text = "Select up to 5 paired devices"; textSize = 14f; setTextColor(white); setPadding(dp(8), 0, 0, 0)
+            text = "Checking Auracast support…"; textSize = 14f; setTextColor(white); setPadding(dp(8), 0, 0, 0)
         }
         statusCard.addView(status, LinearLayout.LayoutParams(0, -2, 1f))
         selectedCount = TextView(this).apply {
-            text = "0/5"; textSize = 13f; typeface = Typeface.DEFAULT_BOLD; setTextColor(cyan)
+            text = "AURACAST"; textSize = 13f; typeface = Typeface.DEFAULT_BOLD; setTextColor(cyan)
             background = rounded(Color.rgb(25, 57, 76), 14); setPadding(dp(10), dp(5), dp(10), dp(5))
         }
         statusCard.addView(selectedCount); content.addView(statusCard)
 
         content.addView(TextView(this).apply {
-            text = "DEVICES"; textSize = 12f; typeface = Typeface.DEFAULT_BOLD; setTextColor(muted); letterSpacing = 0.16f
+            text = "AURACAST RECEIVERS"; textSize = 12f; typeface = Typeface.DEFAULT_BOLD; setTextColor(muted); letterSpacing = 0.16f
             setPadding(dp(4), dp(22), 0, dp(9))
         })
         deviceList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         content.addView(deviceList)
         content.addView(TextView(this).apply {
-            text = "Tip • Pair your earbuds/speakers in Bluetooth Settings first. Android may still limit simultaneous outputs."
+            text = "Important • Receivers must support LE Audio/Auracast. Normal A2DP devices cannot join an Auracast broadcast."
             textSize = 12f; setTextColor(muted); setPadding(dp(4), dp(12), dp(4), dp(10))
         })
 
@@ -144,9 +144,9 @@ class MainActivity : Activity() {
         }, LinearLayout.LayoutParams(0, dp(54), 0.42f))
         val shareParams = LinearLayout.LayoutParams(0, dp(54), 0.62f); shareParams.setMargins(dp(10), 0, 0, 0)
         buttons.addView(Button(this).apply {
-            text = "▶  Share Movie Audio"; textSize = 14f; typeface = Typeface.DEFAULT_BOLD; isAllCaps = false
+            text = "▶  Start Auracast"; textSize = 14f; typeface = Typeface.DEFAULT_BOLD; isAllCaps = false
             setTextColor(Color.WHITE); background = rounded(Color.rgb(55, 113, 232), 18)
-            setOnClickListener { startSharingExperiment() }
+            setOnClickListener { startAuracast() }
         }, shareParams)
         val bp = LinearLayout.LayoutParams(-1, dp(54)); bp.setMargins(0, dp(8), 0, 0); content.addView(buttons, bp)
 
@@ -196,6 +196,54 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun startAuracast() {
+        if (Build.VERSION.SDK_INT < 33) {
+            status.text = "Auracast needs Android 13+."
+            Toast.makeText(this, "This Android version cannot be an Auracast source.", Toast.LENGTH_LONG).show()
+            return
+        }
+        val adapter = BluetoothAdapter.getDefaultAdapter()
+        if (adapter == null) {
+            status.text = "Bluetooth is not available on this phone."
+            return
+        }
+        try {
+            val result = adapter.isLeAudioBroadcastSourceSupported()
+            if (result == android.bluetooth.BluetoothStatusCodes.FEATURE_SUPPORTED) {
+                status.text = "Auracast broadcast source: supported ✓"
+                Toast.makeText(this, "Phone supports Auracast. Opening Bluetooth settings…", Toast.LENGTH_LONG).show()
+                startActivity(Intent(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS))
+            } else {
+                status.text = "Auracast broadcast source is not supported by this phone."
+                Toast.makeText(this, "This phone's Bluetooth hardware does not support Auracast broadcast source.", Toast.LENGTH_LONG).show()
+            }
+        } catch (_: Exception) {
+            status.text = "Could not check Auracast support."
+            Toast.makeText(this, "Could not check Auracast support on this phone.", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun updateAuracastStatus() {
+        if (Build.VERSION.SDK_INT < 33) {
+            status.text = "Auracast needs Android 13+."
+            return
+        }
+        val adapter = BluetoothAdapter.getDefaultAdapter()
+        if (adapter == null) {
+            status.text = "Bluetooth is not available on this phone."
+            return
+        }
+        try {
+            status.text = when (adapter.isLeAudioBroadcastSourceSupported()) {
+                android.bluetooth.BluetoothStatusCodes.FEATURE_SUPPORTED -> "Auracast broadcast source: supported ✓"
+                android.bluetooth.BluetoothStatusCodes.FEATURE_NOT_SUPPORTED -> "Auracast broadcast source: not supported"
+                else -> "Auracast support: unavailable / Bluetooth is off"
+            }
+        } catch (_: Exception) {
+            status.text = "Auracast support: could not be checked"
+        }
+    }
+
     private fun openBluetoothPairing() {
         try {
             startActivity(Intent(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS))
@@ -214,6 +262,7 @@ class MainActivity : Activity() {
             // Bluetooth Settings can finish pairing a moment after this activity resumes.
             // Refresh once now and again shortly after returning from Settings.
             loadPairedDevices()
+            updateAuracastStatus()
             deviceList.postDelayed({ loadPairedDevices() }, 1200)
             deviceList.postDelayed({ loadPairedDevices() }, 3000)
         }
@@ -230,7 +279,7 @@ class MainActivity : Activity() {
         if (requestCode == audioPermissionRequest && results.isNotEmpty() && results[0] == PackageManager.PERMISSION_GRANTED) {
             startSharingExperiment()
         } else if (requestCode == 100) {
-            if (results.isNotEmpty() && results.all { it == PackageManager.PERMISSION_GRANTED }) loadPairedDevices()
+            if (results.isNotEmpty() && results.all { it == PackageManager.PERMISSION_GRANTED }) { loadPairedDevices(); updateAuracastStatus() }
             else status.text = "Bluetooth permission is required to show paired devices."
         }
     }
@@ -251,7 +300,7 @@ class MainActivity : Activity() {
         devices.sortedBy {
             try { it.name ?: it.address } catch (_: SecurityException) { it.address }
         }.forEach { addDeviceRow(it) }
-        status.text = "Showing " + devices.size + " paired device(s) • select up to 5"
+        status.text = "Showing " + devices.size + " paired device(s) • Auracast receivers only"
     }
 
     private fun addDeviceRow(device: BluetoothDevice) {
@@ -271,7 +320,7 @@ class MainActivity : Activity() {
                 else {
                     if (checked) selected.add(device.address) else selected.remove(device.address)
                     selectedCount.text = selected.size.toString() + "/5"
-                    status.text = if (selected.isEmpty()) "Select up to 5 paired devices" else selected.size.toString() + " device(s) selected"
+                    status.text = if (selected.isEmpty()) "Auracast receivers must support LE Audio" else selected.size.toString() + " device(s) selected"
                 }
             }
         }, LinearLayout.LayoutParams(0, -2, 1f))
